@@ -1,0 +1,95 @@
+.create-post {
+  margin-bottom: 20px;
+}
+
+.create-post-header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 15px;
+}
+
+.category-select {
+  padding: 5px 10px;
+  border: none;
+  background: #f8bbd9;
+  border-radius: 15px;
+  cursor: pointer;
+}
+
+.create-post textarea {
+  width: 100%;
+  padding: 15px;
+  border: 2px solid #f5f5f5;
+  border-radius: 15px;
+  resize: none;
+  font-family: inherit;
+  font-size: 15px;
+  margin-bottom: 15px;
+}
+
+.create-post textarea:focus {
+  outline: none;
+  border-color: #f8bbd9;
+}
+
+.image-previews {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 15px;
+}
+
+.preview {
+  position: relative;
+  width: 80px;
+  height: 80px;
+}
+
+.preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.preview button {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+.create-post-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 15px;
+  border-top: 1px solid #f5f5f5;
+}
+
+.add-photo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 15px;
+  border: none;
+  background: #f5f5f5;
+  border-radius: 20px;
+  cursor: pointer;
+}
+
+.add-photo:hover {
+  background: #f8bbd9;
+  color: #e91e63;
+}

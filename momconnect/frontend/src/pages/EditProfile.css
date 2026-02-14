@@ -1,0 +1,286 @@
+.edit-profile-page {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.edit-profile-container {
+  padding: 30px;
+}
+
+.edit-profile-container h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 25px;
+  color: #333;
+}
+
+.edit-profile-container h1 svg {
+  color: #e91e63;
+}
+
+.error-alert {
+  background: #ffebee;
+  color: #f44336;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.success-alert {
+  background: #e8f5e9;
+  color: #4caf50;
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 20px;
+  font-size: 14px;
+}
+
+.avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 30px;
+}
+
+.avatar-wrapper {
+  position: relative;
+  margin-bottom: 15px;
+}
+
+.profile-avatar {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 4px solid #f8bbd9;
+}
+
+.avatar-edit-btn {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e91e63, #9c27b0);
+  color: white;
+  border: 3px solid white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.3s;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(233, 30, 99, 0.4);
+}
+
+.avatar-edit-btn:hover {
+  transform: scale(1.1);
+}
+
+.upload-btn {
+  padding: 8px 20px;
+  font-size: 14px;
+}
+
+.form-group {
+  margin-bottom: 25px;
+}
+
+.form-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-weight: 500;
+  color: #333;
+}
+
+.form-group label svg {
+  color: #e91e63;
+}
+
+.form-group input[type="text"],
+.form-group input[type="number"],
+.form-group textarea,
+.form-group select {
+  width: 100%;
+  padding: 14px 16px;
+  border: 2px solid #f5f5f5;
+  border-radius: 12px;
+  font-size: 14px;
+  font-family: inherit;
+  transition: border-color 0.3s;
+}
+
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #f8bbd9;
+}
+
+.form-group textarea {
+  resize: vertical;
+  min-height: 100px;
+}
+
+.char-count {
+  display: block;
+  text-align: right;
+  font-size: 12px;
+  color: #9e9e9e;
+  margin-top: 5px;
+}
+
+/* Children Section */
+.children-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.child-item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.child-item input[type="text"] {
+  flex: 2;
+}
+
+.child-item input[type="number"] {
+  flex: 1;
+  max-width: 80px;
+}
+
+.child-item select {
+  flex: 1;
+  max-width: 100px;
+}
+
+.remove-child-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #ffebee;
+  color: #f44336;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.3s;
+}
+
+.remove-child-btn:hover {
+  background: #f44336;
+  color: white;
+}
+
+.add-child-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border: 2px dashed #f8bbd9;
+  background: transparent;
+  border-radius: 12px;
+  color: #e91e63;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.3s;
+}
+
+.add-child-btn:hover {
+  background: #fce4ec;
+}
+
+/* Interests Section */
+.interests-input {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.interests-input input {
+  flex: 1;
+}
+
+.add-interest-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #e91e63, #9c27b0);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+}
+
+.interests-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.interest-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #f8bbd9;
+  color: #c2185b;
+  padding: 8px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+}
+
+.interest-tag button {
+  background: none;
+  border: none;
+  color: #c2185b;
+  cursor: pointer;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.interest-tag button:hover {
+  color: #f44336;
+}
+
+/* Form Actions */
+.form-actions {
+  display: flex;
+  gap: 15px;
+  margin-top: 30px;
+}
+
+.form-actions .btn {
+  flex: 1;
+  padding: 14px;
+  font-size: 16px;
+}
+
+@media (max-width: 600px) {
+  .child-item {
+    flex-wrap: wrap;
+  }
+
+  .child-item input,
+  .child-item select {
+    flex: 1 1 100%;
+    max-width: none;
+  }
+
+  .form-actions {
+    flex-direction: column;
+  }
+}

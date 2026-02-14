@@ -1,0 +1,204 @@
+.explore-page {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: var(--spacing-md);
+}
+
+/* Header */
+.explore-header {
+    text-align: center;
+    margin-bottom: var(--spacing-lg);
+    animation: slideDown 0.3s ease;
+}
+
+.explore-header h1 {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-xs);
+    background: var(--gradient-candy);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.explore-subtitle {
+    color: var(--text-muted);
+    font-size: 0.95rem;
+}
+
+/* Tabs */
+.explore-tabs {
+    display: flex;
+    background: var(--white);
+    border-radius: var(--radius-full);
+    padding: 5px;
+    box-shadow:
+        0 3px 0 0 var(--primary-100),
+        var(--shadow);
+    margin-bottom: var(--spacing-md);
+    animation: slideUp 0.3s ease;
+    border: 2px solid var(--primary-100);
+}
+
+.tab-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    padding: var(--spacing-md);
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: var(--radius-full);
+    transition: var(--transition-bounce);
+}
+
+.tab-btn:hover {
+    color: var(--primary);
+    background: var(--primary-50);
+}
+
+.tab-btn.active {
+    background: linear-gradient(135deg, #ff9a9e, #fecfef, #fbc2eb);
+    color: white;
+    box-shadow: var(--shadow-primary);
+    transform: scale(1.02);
+}
+
+/* Category Filter */
+.category-filter {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-lg);
+    animation: fadeIn 0.4s ease;
+}
+
+.filter-icon {
+    color: var(--primary);
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.category-pills {
+    display: flex;
+    gap: var(--spacing-sm);
+    overflow-x: auto;
+    padding-bottom: var(--spacing-sm);
+    -webkit-overflow-scrolling: touch;
+}
+
+.category-pills::-webkit-scrollbar {
+    height: 4px;
+}
+
+.category-pill {
+    padding: 10px 18px;
+    border: 2px solid var(--primary-100);
+    background: var(--white);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: var(--transition-bounce);
+}
+
+.category-pill:hover {
+    background: var(--primary-50);
+    color: var(--primary);
+    border-color: var(--primary-200);
+    transform: translateY(-2px);
+}
+
+.category-pill.active {
+    background: linear-gradient(135deg, #ff9a9e, #fecfef, #fbc2eb);
+    color: white;
+    border-color: transparent;
+    box-shadow: var(--shadow-primary);
+}
+
+/* Content */
+.explore-content {
+    animation: fadeIn 0.3s ease;
+}
+
+/* Skeleton Loading */
+.skeleton-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.skeleton-card {
+    background: var(--white);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    box-shadow: var(--shadow);
+    border: 2px solid var(--primary-100);
+}
+
+.skeleton-header {
+    display: flex;
+    gap: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+}
+
+.skeleton-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+/* Error & Empty States */
+.error-state,
+.empty-state {
+    text-align: center;
+    padding: var(--spacing-2xl);
+}
+
+.error-state p,
+.empty-state p {
+    color: var(--text-muted);
+    margin-bottom: var(--spacing-md);
+}
+
+.empty-state h3 {
+    margin-bottom: var(--spacing-sm);
+    color: var(--primary);
+}
+
+/* Load More */
+.load-more {
+    text-align: center;
+    padding: var(--spacing-lg);
+}
+
+.load-more .btn {
+    min-width: 150px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .explore-page {
+        padding: var(--spacing-sm);
+    }
+
+    .explore-header h1 {
+        font-size: 1.5rem;
+    }
+
+    .tab-btn {
+        padding: var(--spacing-sm);
+        font-size: 0.85rem;
+    }
+
+    .tab-btn span {
+        display: none;
+    }
+}
