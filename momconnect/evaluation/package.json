@@ -1,0 +1,19 @@
+{
+  "name": "evaluation",
+  "version": "1.0.0",
+  "description": "A **standalone** evaluation framework that covers every critical dimension of the MomConnect platform — from API correctness and security to AI chatbot quality, recommendation relevance, and real-time communication.",
+  "main": "run_all.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.13.6"
+  }
+}

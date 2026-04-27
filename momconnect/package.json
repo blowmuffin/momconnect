@@ -1,5 +1,30 @@
 {
-  "dependencies": {
-    "mongodb": "4.1"
+  "name": "momconnect",
+  "version": "1.0.0",
+  "description": "AI-Powered Maternal Health & Social Support Platform",
+  "private": true,
+  "keywords": [
+    "maternal-health",
+    "ai-chatbot",
+    "gemini",
+    "social-platform",
+    "emergency-response",
+    "mental-health",
+    "nodejs",
+    "react"
+  ],
+  "author": "MomConnect Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/blowmuffin/momconnect.git"
+  },
+  "bugs": {
+    "url": "https://github.com/blowmuffin/momconnect/issues"
+  },
+  "homepage": "https://github.com/blowmuffin/momconnect#readme",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   }
 }

@@ -19,7 +19,8 @@ class GeminiClient {
         this.client = new GoogleGenerativeAI(this.apiKey);
         this.primaryModel = config.gemini.model;
         // Fallback models in case primary model is unavailable
-        this.fallbackModels = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-latest'];
+        // Verified against ListModels API — only models that exist in v1beta
+        this.fallbackModels = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash'];
         this.model = this._createModel(this.primaryModel);
         this.activeModelName = this.primaryModel;
 
@@ -199,6 +200,13 @@ class GeminiClient {
                     const isRateLimit = error.message?.includes('RATE_LIMIT') || error.status === 429;
                     const isTransient = error.message?.includes('UNAVAILABLE') || error.message?.includes('INTERNAL') || error.status === 500;
 
+                    // If daily/per-model quota is exhausted, don't retry — try next model instead
+                    const isQuotaExhausted = isRateLimit && error.message?.includes('QuotaFailure');
+                    if (isQuotaExhausted) {
+                        console.warn(`[GeminiClient] Quota exhausted for ${modelName}, trying next model`);
+                        break; // Skip retries, try next model
+                    }
+
                     if ((isRateLimit || isTransient) && attempt < maxRetries - 1) {
                         const delay = baseDelay * Math.pow(2, attempt);
                         console.warn(`[GeminiClient] Retry ${attempt + 1}/${maxRetries} after ${delay}ms — ${error.message}`);
@@ -267,45 +275,64 @@ Respond with ONLY valid JSON (no markdown, no backticks):
 
 User message: "${message}"`;
 
-        try {
-            const result = await this.model.generateContent({
-                contents: [{ role: 'user', parts: [{ text: classificationPrompt }] }],
-                generationConfig: {
-                    maxOutputTokens: 150,
-                    temperature: 0.1
-                }
-            });
+        // Try all models (active + fallbacks) for classification
+        const modelsToTry = [this.activeModelName, ...this.fallbackModels.filter(m => m !== this.activeModelName)];
+        let lastError = null;
 
-            const rawText = result.response.text().trim();
-            // Strip markdown fences if present
-            const cleaned = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-
+        for (const modelName of modelsToTry) {
             try {
-                const parsed = JSON.parse(cleaned);
-                const intent = String(parsed.intent || '').toUpperCase();
-                const confidence = parseInt(parsed.confidence) || 70;
+                const currentModel = modelName === this.activeModelName ? this.model : this._createModel(modelName);
 
-                if (validIntents.includes(intent)) {
-                    return {
-                        intent,
-                        confidence: Math.min(100, Math.max(0, confidence))
-                    };
-                }
-            } catch (parseErr) {
-                // JSON parse failed — try to extract intent from raw text
-                const upperText = rawText.toUpperCase();
-                for (const vi of validIntents) {
-                    if (upperText.includes(vi)) {
-                        return { intent: vi, confidence: 60 };
+                const result = await currentModel.generateContent({
+                    contents: [{ role: 'user', parts: [{ text: classificationPrompt }] }],
+                    generationConfig: {
+                        maxOutputTokens: 150,
+                        temperature: 0.1
+                    }
+                });
+
+                const rawText = result.response.text().trim();
+                // Strip markdown fences if present
+                const cleaned = rawText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
+                try {
+                    const parsed = JSON.parse(cleaned);
+                    const intent = String(parsed.intent || '').toUpperCase();
+                    const confidence = parseInt(parsed.confidence) || 70;
+
+                    if (validIntents.includes(intent)) {
+                        return {
+                            intent,
+                            confidence: Math.min(100, Math.max(0, confidence))
+                        };
+                    }
+                } catch (parseErr) {
+                    // JSON parse failed — try to extract intent from raw text
+                    const upperText = rawText.toUpperCase();
+                    for (const vi of validIntents) {
+                        if (upperText.includes(vi)) {
+                            return { intent: vi, confidence: 60 };
+                        }
                     }
                 }
-            }
 
-            return { intent: 'GENERAL', confidence: 30 };
-        } catch (error) {
-            console.error('Intent classification error:', error.message);
-            return { intent: 'GENERAL', confidence: 0 };
+                return { intent: 'GENERAL', confidence: 30 };
+            } catch (error) {
+                lastError = error;
+                // Any 429 or model error — skip to next model immediately (classification is latency-sensitive)
+                if (error.status === 429 || error.status === 404 || error.status === 503) {
+                    console.warn(`[GeminiClient] classifyIntent: ${modelName} unavailable (${error.status}), trying next...`);
+                    continue;
+                }
+                // Other error — log and try next model
+                console.warn(`[GeminiClient] classifyIntent failed on ${modelName}:`, error.message);
+                continue;
+            }
         }
+
+        // All models failed
+        console.error('Intent classification error: all models failed.', lastError?.message);
+        return { intent: 'GENERAL', confidence: 0 };
     }
 
     /**
@@ -339,26 +366,32 @@ User message: "${message}"`;
             return '';
         }
 
-        try {
-            const conversationText = messages.map(m =>
-                `${m.role === 'user' ? 'User' : 'Bot'}: ${m.content}`
-            ).join('\n');
+        const conversationText = messages.map(m =>
+            `${m.role === 'user' ? 'User' : 'Bot'}: ${m.content}`
+        ).join('\n');
 
-            const prompt = `Summarize this conversation in 2-3 sentences. Focus on: the user's main concerns, any health details mentioned (pregnancy stage, symptoms), and emotional state. Be concise.\n\nConversation:\n${conversationText}`;
+        const prompt = `Summarize this conversation in 2-3 sentences. Focus on: the user's main concerns, any health details mentioned (pregnancy stage, symptoms), and emotional state. Be concise.\n\nConversation:\n${conversationText}`;
 
-            const result = await this.model.generateContent({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                    maxOutputTokens: 150,
-                    temperature: 0.3
+        // Try all models (non-critical operation, fail gracefully)
+        const modelsToTry = [this.activeModelName, ...this.fallbackModels.filter(m => m !== this.activeModelName)];
+        for (const modelName of modelsToTry) {
+            try {
+                const currentModel = modelName === this.activeModelName ? this.model : this._createModel(modelName);
+                const result = await currentModel.generateContent({
+                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                    generationConfig: { maxOutputTokens: 150, temperature: 0.3 }
+                });
+                return result.response.text().trim();
+            } catch (error) {
+                if (error.status === 429 || error.status === 404 || error.status === 503) {
+                    continue; // Try next model
                 }
-            });
-
-            return result.response.text().trim();
-        } catch (error) {
-            console.error('Conversation summarization error:', error);
-            return '';
+                console.error('Conversation summarization error:', error.message);
+                return '';
+            }
         }
+        // All models failed — non-critical, return empty
+        return '';
     }
 
     /**
@@ -369,36 +402,39 @@ User message: "${message}"`;
     async extractProfileInfo(message) {
         if (!this.isAvailable()) return null;
 
-        try {
-            const prompt = `Extract any personal profile information from this message. Return ONLY a JSON object with any fields found (leave out fields not mentioned). Possible fields: name, pregnancyStage (e.g. "first_trimester", "second_trimester", "third_trimester", "postpartum"), dueDate, babyAge, conditions (array of strings).
+        const prompt = `Extract any personal profile information from this message. Return ONLY a JSON object with any fields found (leave out fields not mentioned). Possible fields: name, pregnancyStage (e.g. "first_trimester", "second_trimester", "third_trimester", "postpartum"), dueDate, babyAge, conditions (array of strings).
 
 If no profile info is found, return: {}
 
 Message: "${message}"`;
 
-            const result = await this.model.generateContent({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                    maxOutputTokens: 100,
-                    temperature: 0.1
-                }
-            });
+        // Try all models (non-critical operation, fail gracefully)
+        const modelsToTry = [this.activeModelName, ...this.fallbackModels.filter(m => m !== this.activeModelName)];
+        for (const modelName of modelsToTry) {
+            try {
+                const currentModel = modelName === this.activeModelName ? this.model : this._createModel(modelName);
+                const result = await currentModel.generateContent({
+                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                    generationConfig: { maxOutputTokens: 100, temperature: 0.1 }
+                });
 
-            const responseText = result.response.text().trim();
-            // Try to parse JSON from response
-            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                const parsed = JSON.parse(jsonMatch[0]);
-                // Only return if it has at least one field
-                if (Object.keys(parsed).length > 0) {
-                    return parsed;
+                const responseText = result.response.text().trim();
+                const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    const parsed = JSON.parse(jsonMatch[0]);
+                    if (Object.keys(parsed).length > 0) {
+                        return parsed;
+                    }
                 }
+                return null;
+            } catch (error) {
+                if (error.status === 429 || error.status === 404 || error.status === 503) {
+                    continue; // Try next model
+                }
+                return null; // Non-critical, fail silently
             }
-            return null;
-        } catch (error) {
-            // Non-critical, fail silently
-            return null;
         }
+        return null;
     }
 }
 

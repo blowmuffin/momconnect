@@ -608,7 +608,13 @@ class Orchestrator {
             }
 
             const styleDirective = this.getRandomStyleDirective();
-            const systemPrompt = `${config.systemPrompts.orchestrator}\n\nSTYLE FOR THIS RESPONSE: ${styleDirective}\n\nThe user asked a general question. Answer helpfully within the scope of maternal health and wellbeing. If the question is completely outside your scope (e.g., math, weather), briefly acknowledge it and gently redirect to what you can help with.`;
+            const systemPrompt = `You are MomConnect AI, a warm and friendly maternal health companion built for mothers in India.
+
+You are having a conversation with a user. Answer their question helpfully within the scope of maternal health and wellbeing. If the question is completely outside your scope (e.g., math, weather), briefly acknowledge it and gently redirect to what you can help with.
+
+MULTI-LANGUAGE SUPPORT: If the user writes in Hindi, reply in Hindi. If Hinglish, reply in Hinglish. Match the user's language naturally.
+
+STYLE FOR THIS RESPONSE: ${styleDirective}`;
 
             const response = await geminiClient.generateResponse(
                 prompt,

@@ -5,6 +5,10 @@
   <img src="https://img.shields.io/badge/Gemini_2.0-AI-4285F4?logo=google&logoColor=white" />
   <img src="https://img.shields.io/badge/Twilio-Emergency-F22F46?logo=twilio&logoColor=white" />
   <img src="https://img.shields.io/badge/Socket.io-Realtime-010101?logo=socketdotio&logoColor=white" />
+  <br />
+  <img src="https://img.shields.io/github/license/blowmuffin/momconnect?color=blue" />
+  <img src="https://img.shields.io/github/last-commit/blowmuffin/momconnect" />
+  <img src="https://img.shields.io/github/issues/blowmuffin/momconnect" />
 </p>
 
 # 🤱 MomConnect — AI-Powered Maternal Health & Social Support Platform
@@ -465,7 +469,7 @@ User Message → sanitizeInput() → getOrCreateSession() → updateLocation()
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YOUR_USERNAME/momconnect.git
+git clone https://github.com/blowmuffin/momconnect.git
 cd momconnect
 
 # 2. Install backend dependencies
@@ -637,7 +641,7 @@ npm run build
 
 ## 📄 License
 
-This project is built for academic and social impact purposes. All rights reserved.
+This project is licensed under the [MIT License](LICENSE).
 
 ---
 
