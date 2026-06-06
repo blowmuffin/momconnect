@@ -30,41 +30,53 @@ class HttpClient {
     return headers;
   }
 
-  async get(path, params = {}, extraHeaders = {}) {
+  /**
+   * Issue a request, timing it and never throwing. validateStatus suppresses
+   * HTTP-status throws, but axios still throws on network/timeout errors
+   * (ECONNREFUSED, ETIMEDOUT) — catch those and return a synthetic response so
+   * test assertions degrade to a failed check (status 0) instead of crashing
+   * the whole suite.
+   */
+  async _send(makeRequest) {
     const start = Date.now();
-    const res = await this.client.get(path, {
+    try {
+      const res = await makeRequest();
+      res._durationMs = Date.now() - start;
+      return res;
+    } catch (err) {
+      return {
+        status: err.response?.status ?? 0,
+        data: err.response?.data ?? { message: err.message },
+        headers: err.response?.headers ?? {},
+        _durationMs: Date.now() - start,
+        _networkError: !err.response
+      };
+    }
+  }
+
+  async get(path, params = {}, extraHeaders = {}) {
+    return this._send(() => this.client.get(path, {
       params,
       headers: this._headers(extraHeaders)
-    });
-    res._durationMs = Date.now() - start;
-    return res;
+    }));
   }
 
   async post(path, body = {}, extraHeaders = {}) {
-    const start = Date.now();
-    const res = await this.client.post(path, body, {
+    return this._send(() => this.client.post(path, body, {
       headers: this._headers(extraHeaders)
-    });
-    res._durationMs = Date.now() - start;
-    return res;
+    }));
   }
 
   async put(path, body = {}, extraHeaders = {}) {
-    const start = Date.now();
-    const res = await this.client.put(path, body, {
+    return this._send(() => this.client.put(path, body, {
       headers: this._headers(extraHeaders)
-    });
-    res._durationMs = Date.now() - start;
-    return res;
+    }));
   }
 
   async delete(path, extraHeaders = {}) {
-    const start = Date.now();
-    const res = await this.client.delete(path, {
+    return this._send(() => this.client.delete(path, {
       headers: this._headers(extraHeaders)
-    });
-    res._durationMs = Date.now() - start;
-    return res;
+    }));
   }
 
   /**

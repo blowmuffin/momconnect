@@ -21,8 +21,10 @@ class GeminiClient {
         // Fallback models in case primary model is unavailable
         // Verified against ListModels API — only models that exist in v1beta
         this.fallbackModels = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash'];
-        this.model = this._createModel(this.primaryModel);
+        // Cache of model instances keyed by name so fallbacks aren't rebuilt on every call
+        this.modelCache = new Map();
         this.activeModelName = this.primaryModel;
+        this.model = this._getModel(this.primaryModel);
 
         // Circuit breaker for API calls
         this.circuitBreaker = new CircuitBreaker({
@@ -54,10 +56,98 @@ class GeminiClient {
     }
 
     /**
+     * Get a (cached) model instance by name, creating it on first use.
+     */
+    _getModel(modelName) {
+        let model = this.modelCache.get(modelName);
+        if (!model) {
+            model = this._createModel(modelName);
+            this.modelCache.set(modelName, model);
+        }
+        return model;
+    }
+
+    /**
      * Check if client is properly initialized
      */
     isAvailable() {
         return this.client !== null;
+    }
+
+    /**
+     * Run a task across the active model and fallbacks with retry + error
+     * classification. The single place that owns model-fallback policy, so all
+     * callers share one correct mechanism.
+     *
+     * @param {(model, modelName, attempt) => Promise<any>} taskFn - performs the
+     *        model-specific call and parsing; throw to trigger fallback/retry.
+     * @param {Object} [opts]
+     * @param {number} [opts.maxRetries=3] - in-model attempts before next model
+     *        (use 1 for latency-sensitive calls that should fail over immediately)
+     * @param {number} [opts.baseDelay=1000] - base backoff in ms
+     * @returns {Promise<any>} taskFn's resolved value
+     * @throws the last error if every model is exhausted
+     */
+    async _executeWithModels(taskFn, { maxRetries = 3, baseDelay = 1000 } = {}) {
+        const modelsToTry = [
+            this.activeModelName,
+            ...this.fallbackModels.filter(m => m !== this.activeModelName)
+        ];
+        let lastError = null;
+
+        for (const modelName of modelsToTry) {
+            const model = this._getModel(modelName);
+
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const result = await taskFn(model, modelName, attempt);
+
+                    // Success — promote this model to active for all future calls,
+                    // so a dead primary stops being retried on every request.
+                    if (modelName !== this.activeModelName) {
+                        console.log(`[GeminiClient] Switched active model ${this.activeModelName} → ${modelName}`);
+                        this.activeModelName = modelName;
+                        this.model = model;
+                    }
+                    return result;
+                } catch (error) {
+                    lastError = error;
+
+                    // Safety filter — caller-specific handling, never retry/fallback.
+                    if (error.message?.includes('SAFETY')) {
+                        throw error;
+                    }
+
+                    // Model unavailable (404/503) — abandon this model immediately.
+                    if (error.status === 404 || error.status === 503) {
+                        console.warn(`[GeminiClient] Model ${modelName} unavailable (${error.status}), trying next...`);
+                        break;
+                    }
+
+                    const isRateLimit = error.message?.includes('RATE_LIMIT') || error.status === 429;
+                    const isTransient = error.message?.includes('UNAVAILABLE') || error.message?.includes('INTERNAL') || error.status === 500;
+
+                    // Per-model quota exhausted — retrying won't help, try next model.
+                    if (isRateLimit && error.message?.includes('QuotaFailure')) {
+                        console.warn(`[GeminiClient] Quota exhausted for ${modelName}, trying next model`);
+                        break;
+                    }
+
+                    // Transient / rate-limit — exponential backoff and retry.
+                    if ((isRateLimit || isTransient) && attempt < maxRetries - 1) {
+                        const delay = baseDelay * Math.pow(2, attempt);
+                        console.warn(`[GeminiClient] Retry ${attempt + 1}/${maxRetries} after ${delay}ms — ${error.message}`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+
+                    // Non-retryable, or retries exhausted — move to next model.
+                    break;
+                }
+            }
+        }
+
+        throw lastError || new Error('All Gemini models failed');
     }
 
     /**
@@ -84,148 +174,98 @@ class GeminiClient {
     async _generateResponseInternal(prompt, systemPrompt, history = []) {
 
         const startTime = Date.now();
-        const maxRetries = 3;
-        const baseDelay = 1000; // 1 second
 
-        // Models to try: current active + fallbacks
-        const modelsToTry = [this.activeModelName, ...this.fallbackModels.filter(m => m !== this.activeModelName)];
-        let lastError = null;
+        const taskFn = async (model, modelName, attempt) => {
+            // Limit history to last 10 messages to prevent context overflow
+            const limitedHistory = Array.isArray(history) ? history.slice(-10) : [];
 
-        for (const modelName of modelsToTry) {
-            const currentModel = modelName === this.activeModelName ? this.model : this._createModel(modelName);
+            // Validate and clean history to ensure proper format
+            const cleanHistory = limitedHistory.filter(msg =>
+                msg && msg.role && msg.parts && Array.isArray(msg.parts) && msg.parts.length > 0
+            ).map(msg => ({
+                role: msg.role === 'assistant' ? 'model' : msg.role,
+                parts: msg.parts.map(p => ({ text: String(p.text || '') }))
+            }));
 
-            for (let attempt = 0; attempt < maxRetries; attempt++) {
-                try {
-                    // Limit history to last 10 messages to prevent context overflow
-                    const limitedHistory = Array.isArray(history) ? history.slice(-10) : [];
-
-                    // Validate and clean history to ensure proper format
-                    const cleanHistory = limitedHistory.filter(msg =>
-                        msg && msg.role && msg.parts && Array.isArray(msg.parts) && msg.parts.length > 0
-                    ).map(msg => ({
-                        role: msg.role === 'assistant' ? 'model' : msg.role,
-                        parts: msg.parts.map(p => ({ text: String(p.text || '') }))
-                    }));
-
-                    // Ensure history alternates between user and model
-                    const validHistory = [];
-                    let lastRole = null;
-                    for (const msg of cleanHistory) {
-                        if (msg.role !== lastRole) {
-                            validHistory.push(msg);
-                            lastRole = msg.role;
-                        }
-                    }
-
-                    // CRITICAL: Gemini API requires first message to be role 'user'
-                    // Strip any leading 'model' messages that would cause API rejection
-                    while (validHistory.length > 0 && validHistory[0].role !== 'user') {
-                        validHistory.shift();
-                    }
-
-                    // Also strip trailing 'user' messages since we're about to send one
-                    while (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
-                        validHistory.pop();
-                    }
-
-                    // Start a chat with system instruction and history
-                    const chat = currentModel.startChat({
-                        history: validHistory,
-                        generationConfig: {
-                            maxOutputTokens: config.gemini.maxOutputTokens,
-                            temperature: config.gemini.temperature
-                        },
-                        systemInstruction: {
-                            parts: [{ text: systemPrompt }]
-                        }
-                    });
-
-                    // Send the message and get response
-                    const result = await chat.sendMessage(prompt);
-                    const response = result.response;
-                    const text = response.text();
-
-                    // Handle empty response
-                    if (!text || text.trim().length === 0) {
-                        throw new Error('Empty response from Gemini');
-                    }
-
-                    const endTime = Date.now();
-
-                    // If we switched models, remember it
-                    if (modelName !== this.activeModelName) {
-                        console.log(`[GeminiClient] Switched from ${this.activeModelName} to ${modelName}`);
-                        this.activeModelName = modelName;
-                        this.model = currentModel;
-                    }
-
-                    return {
-                        text: text,
-                        metadata: {
-                            responseTimeMs: endTime - startTime,
-                            model: modelName,
-                            tokensUsed: {
-                                prompt: response.usageMetadata?.promptTokenCount || 0,
-                                completion: response.usageMetadata?.candidatesTokenCount || 0,
-                                total: response.usageMetadata?.totalTokenCount || 0
-                            },
-                            finishReason: response.candidates?.[0]?.finishReason || 'STOP',
-                            retryAttempt: attempt
-                        }
-                    };
-                } catch (error) {
-                    lastError = error;
-
-                    // Handle safety filter — don't retry, don't try other models
-                    if (error.message?.includes('SAFETY')) {
-                        return {
-                            text: 'I understand this is a sensitive topic. If you\'re going through a difficult time, please know that help is available. You can reach KIRAN helpline at 1800-599-0019 (24/7, toll-free).',
-                            metadata: {
-                                responseTimeMs: Date.now() - startTime,
-                                error: 'SAFETY_FILTER',
-                                model: modelName,
-                                tokensUsed: { prompt: 0, completion: 0, total: 0 }
-                            }
-                        };
-                    }
-
-                    // Model not found (404) or unavailable (503) — try next model
-                    const isModelError = error.status === 404 || error.status === 503;
-                    if (isModelError) {
-                        console.warn(`[GeminiClient] Model ${modelName} unavailable (${error.status}), trying next...`);
-                        break; // Break retry loop, try next model
-                    }
-
-                    // Retryable errors: rate limit and transient
-                    const isRateLimit = error.message?.includes('RATE_LIMIT') || error.status === 429;
-                    const isTransient = error.message?.includes('UNAVAILABLE') || error.message?.includes('INTERNAL') || error.status === 500;
-
-                    // If daily/per-model quota is exhausted, don't retry — try next model instead
-                    const isQuotaExhausted = isRateLimit && error.message?.includes('QuotaFailure');
-                    if (isQuotaExhausted) {
-                        console.warn(`[GeminiClient] Quota exhausted for ${modelName}, trying next model`);
-                        break; // Skip retries, try next model
-                    }
-
-                    if ((isRateLimit || isTransient) && attempt < maxRetries - 1) {
-                        const delay = baseDelay * Math.pow(2, attempt);
-                        console.warn(`[GeminiClient] Retry ${attempt + 1}/${maxRetries} after ${delay}ms — ${error.message}`);
-                        await new Promise(resolve => setTimeout(resolve, delay));
-                        continue;
-                    }
-
-                    // Non-retryable error on this model — try next model
-                    if (attempt === maxRetries - 1) {
-                        console.warn(`[GeminiClient] All retries exhausted for ${modelName}`);
-                        break;
-                    }
+            // Ensure history alternates between user and model
+            const validHistory = [];
+            let lastRole = null;
+            for (const msg of cleanHistory) {
+                if (msg.role !== lastRole) {
+                    validHistory.push(msg);
+                    lastRole = msg.role;
                 }
             }
-        }
 
-        // All models and retries failed
-        console.error('[GeminiClient] All models failed. Last error:', lastError?.message);
-        throw lastError || new Error('All Gemini models failed');
+            // CRITICAL: Gemini API requires first message to be role 'user'
+            // Strip any leading 'model' messages that would cause API rejection
+            while (validHistory.length > 0 && validHistory[0].role !== 'user') {
+                validHistory.shift();
+            }
+
+            // Also strip trailing 'user' messages since we're about to send one
+            while (validHistory.length > 0 && validHistory[validHistory.length - 1].role === 'user') {
+                validHistory.pop();
+            }
+
+            // Start a chat with system instruction and history
+            const chat = model.startChat({
+                history: validHistory,
+                generationConfig: {
+                    maxOutputTokens: config.gemini.maxOutputTokens,
+                    temperature: config.gemini.temperature
+                },
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                }
+            });
+
+            // Send the message and get response
+            const result = await chat.sendMessage(prompt);
+            const response = result.response;
+            const text = response.text();
+
+            // Handle empty response (throw → retry / fallback)
+            if (!text || text.trim().length === 0) {
+                throw new Error('Empty response from Gemini');
+            }
+
+            return {
+                text: text,
+                metadata: {
+                    responseTimeMs: Date.now() - startTime,
+                    model: modelName,
+                    tokensUsed: {
+                        prompt: response.usageMetadata?.promptTokenCount || 0,
+                        completion: response.usageMetadata?.candidatesTokenCount || 0,
+                        total: response.usageMetadata?.totalTokenCount || 0
+                    },
+                    finishReason: response.candidates?.[0]?.finishReason || 'STOP',
+                    retryAttempt: attempt
+                }
+            };
+        };
+
+        try {
+            return await this._executeWithModels(taskFn);
+        } catch (error) {
+            // Safety filter — return a compassionate canned response, no retry/fallback.
+            if (error.message?.includes('SAFETY')) {
+                return {
+                    text: 'I understand this is a sensitive topic. If you\'re going through a difficult time, please know that help is available. You can reach KIRAN helpline at 1800-599-0019 (24/7, toll-free).',
+                    metadata: {
+                        responseTimeMs: Date.now() - startTime,
+                        error: 'SAFETY_FILTER',
+                        model: this.activeModelName,
+                        tokensUsed: { prompt: 0, completion: 0, total: 0 }
+                    }
+                };
+            }
+
+            // All models and retries failed
+            console.error('[GeminiClient] All models failed. Last error:', error?.message);
+            throw error;
+        }
     }
 
     /**
@@ -275,15 +315,11 @@ Respond with ONLY valid JSON (no markdown, no backticks):
 
 User message: "${message}"`;
 
-        // Try all models (active + fallbacks) for classification
-        const modelsToTry = [this.activeModelName, ...this.fallbackModels.filter(m => m !== this.activeModelName)];
-        let lastError = null;
-
-        for (const modelName of modelsToTry) {
-            try {
-                const currentModel = modelName === this.activeModelName ? this.model : this._createModel(modelName);
-
-                const result = await currentModel.generateContent({
+        // Classification is latency-sensitive: fail over to the next model
+        // immediately rather than backing off (maxRetries: 1).
+        try {
+            return await this._executeWithModels(async (model) => {
+                const result = await model.generateContent({
                     contents: [{ role: 'user', parts: [{ text: classificationPrompt }] }],
                     generationConfig: {
                         maxOutputTokens: 150,
@@ -298,7 +334,9 @@ User message: "${message}"`;
                 try {
                     const parsed = JSON.parse(cleaned);
                     const intent = String(parsed.intent || '').toUpperCase();
-                    const confidence = parseInt(parsed.confidence) || 70;
+                    // Preserve a legitimate confidence of 0 (avoid `|| 70` falsy-zero bug)
+                    const parsedConf = parseInt(parsed.confidence, 10);
+                    const confidence = Number.isFinite(parsedConf) ? parsedConf : 70;
 
                     if (validIntents.includes(intent)) {
                         return {
@@ -316,23 +354,14 @@ User message: "${message}"`;
                     }
                 }
 
+                // Model responded but yielded no valid intent — settle on GENERAL
+                // (don't burn fallbacks on a successful-but-unclassifiable response).
                 return { intent: 'GENERAL', confidence: 30 };
-            } catch (error) {
-                lastError = error;
-                // Any 429 or model error — skip to next model immediately (classification is latency-sensitive)
-                if (error.status === 429 || error.status === 404 || error.status === 503) {
-                    console.warn(`[GeminiClient] classifyIntent: ${modelName} unavailable (${error.status}), trying next...`);
-                    continue;
-                }
-                // Other error — log and try next model
-                console.warn(`[GeminiClient] classifyIntent failed on ${modelName}:`, error.message);
-                continue;
-            }
+            }, { maxRetries: 1 });
+        } catch (error) {
+            console.error('Intent classification error: all models failed.', error?.message);
+            return { intent: 'GENERAL', confidence: 0 };
         }
-
-        // All models failed
-        console.error('Intent classification error: all models failed.', lastError?.message);
-        return { intent: 'GENERAL', confidence: 0 };
     }
 
     /**
@@ -372,26 +401,19 @@ User message: "${message}"`;
 
         const prompt = `Summarize this conversation in 2-3 sentences. Focus on: the user's main concerns, any health details mentioned (pregnancy stage, symptoms), and emotional state. Be concise.\n\nConversation:\n${conversationText}`;
 
-        // Try all models (non-critical operation, fail gracefully)
-        const modelsToTry = [this.activeModelName, ...this.fallbackModels.filter(m => m !== this.activeModelName)];
-        for (const modelName of modelsToTry) {
-            try {
-                const currentModel = modelName === this.activeModelName ? this.model : this._createModel(modelName);
-                const result = await currentModel.generateContent({
+        // Non-critical operation — fail gracefully to '' if every model is exhausted.
+        try {
+            return await this._executeWithModels(async (model) => {
+                const result = await model.generateContent({
                     contents: [{ role: 'user', parts: [{ text: prompt }] }],
                     generationConfig: { maxOutputTokens: 150, temperature: 0.3 }
                 });
                 return result.response.text().trim();
-            } catch (error) {
-                if (error.status === 429 || error.status === 404 || error.status === 503) {
-                    continue; // Try next model
-                }
-                console.error('Conversation summarization error:', error.message);
-                return '';
-            }
+            }, { maxRetries: 1 });
+        } catch (error) {
+            console.error('Conversation summarization error:', error?.message);
+            return '';
         }
-        // All models failed — non-critical, return empty
-        return '';
     }
 
     /**
@@ -408,12 +430,10 @@ If no profile info is found, return: {}
 
 Message: "${message}"`;
 
-        // Try all models (non-critical operation, fail gracefully)
-        const modelsToTry = [this.activeModelName, ...this.fallbackModels.filter(m => m !== this.activeModelName)];
-        for (const modelName of modelsToTry) {
-            try {
-                const currentModel = modelName === this.activeModelName ? this.model : this._createModel(modelName);
-                const result = await currentModel.generateContent({
+        // Non-critical operation — fail gracefully to null if every model is exhausted.
+        try {
+            return await this._executeWithModels(async (model) => {
+                const result = await model.generateContent({
                     contents: [{ role: 'user', parts: [{ text: prompt }] }],
                     generationConfig: { maxOutputTokens: 100, temperature: 0.1 }
                 });
@@ -421,20 +441,22 @@ Message: "${message}"`;
                 const responseText = result.response.text().trim();
                 const jsonMatch = responseText.match(/\{[\s\S]*\}/);
                 if (jsonMatch) {
-                    const parsed = JSON.parse(jsonMatch[0]);
-                    if (Object.keys(parsed).length > 0) {
-                        return parsed;
+                    // Guard the parse so a malformed-but-successful response settles
+                    // here instead of throwing and burning fallback models.
+                    try {
+                        const parsed = JSON.parse(jsonMatch[0]);
+                        if (Object.keys(parsed).length > 0) {
+                            return parsed;
+                        }
+                    } catch (_) {
+                        return null;
                     }
                 }
                 return null;
-            } catch (error) {
-                if (error.status === 429 || error.status === 404 || error.status === 503) {
-                    continue; // Try next model
-                }
-                return null; // Non-critical, fail silently
-            }
+            }, { maxRetries: 1 });
+        } catch (error) {
+            return null; // Non-critical, fail silently
         }
-        return null;
     }
 }
 

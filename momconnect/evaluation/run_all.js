@@ -26,6 +26,7 @@ async function main() {
   let totalPassed = 0;
   let totalTests = 0;
   let totalCritical = 0;
+  let crashedSuites = 0;
   const startTime = Date.now();
 
   for (const suite of SUITES) {
@@ -39,6 +40,7 @@ async function main() {
       totalTests += summary.total;
       totalCritical += summary.critical_failures;
     } catch (err) {
+      crashedSuites++;
       console.error(`\n  ❌ ${suite.label} CRASHED: ${err.message}`);
       console.error(err.stack);
     }
@@ -56,6 +58,7 @@ async function main() {
   console.log(`\n  Final Score: ${finalScore.finalScore}% (Grade: ${finalScore.grade})`);
   console.log(`  Total Tests: ${totalTests} | Passed: ${totalPassed} | Failed: ${totalTests - totalPassed}`);
   console.log(`  Critical Failures: ${totalCritical}`);
+  console.log(`  Crashed Suites: ${crashedSuites}`);
   console.log(`  Total Duration: ${(totalDuration / 1000).toFixed(1)}s`);
 
   console.log('\n  Breakdown by Dimension:');
@@ -65,7 +68,14 @@ async function main() {
 
   console.log('\n' + '═'.repeat(60));
 
-  process.exit(totalCritical > 0 ? 1 : 0);
+  // Fail the run on any of: a critical test failure, a crashed suite (a whole
+  // dimension never ran), or zero tests executed (broken environment/setup —
+  // e.g. backend unreachable). A "0 tests, exit 0" run must never look green.
+  const failed = totalCritical > 0 || crashedSuites > 0 || totalTests === 0;
+  if (totalTests === 0) {
+    console.log('\n  ⚠️  No tests executed — check that the backend is running and reachable.');
+  }
+  process.exit(failed ? 1 : 0);
 }
 
 function mergeSummaries(a, b) {
